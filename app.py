@@ -70,7 +70,9 @@ app.secret_key = os.getenv("SECRET_KEY", "dev-secret-change-me")
 CHAT_PASSWORD = os.getenv("CHAT_PASSWORD", "change-this")
 
 # Socket.IO in threading mode (avoids eventlet/gevent complications)
-socketio = SocketIO(app, async_mode="threading")
+# replace your current socketio init line with:
+socketio = SocketIO(app, cors_allowed_origins="*")
+
 
 # ---------------- Persistence helpers ----------------
 MESSAGE_LIMIT = 200  # how many recent messages to hydrate into the UI
@@ -170,6 +172,7 @@ def health():
 def on_connect():
     if not authed():
         return False
+    app.logger.info("socket connected")
     emit("init", {"messages": db_recent_messages()})
 
 @socketio.on("send_message")

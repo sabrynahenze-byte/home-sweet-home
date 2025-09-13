@@ -41,7 +41,8 @@
     const input  = document.getElementById('input');
 
     // Force long-polling so Gunicorn + threading works on Heroku
-    const socket = io({ transports: ['polling'] });
+    const socket = io({ transports: ["websocket"], upgrade: false });
+
 
     function escapeHtml(s) {
       return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
