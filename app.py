@@ -12,12 +12,11 @@ from flask_socketio import SocketIO, emit
 from dotenv import load_dotenv
 
 # --- OpenAI ---
-from openai import OpenAI
-
 # — optional safety: strip any proxy env vars Heroku might inject —
 for k in ("HTTP_PROXY","HTTPS_PROXY","ALL_PROXY","http_proxy","https_proxy","all_proxy","OPENAI_PROXY"):
     os.environ.pop(k, None)
-
+    
+from openai import OpenAI
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
