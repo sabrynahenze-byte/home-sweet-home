@@ -7,10 +7,10 @@ Created on Fri Sep 12 15:19:53 2025
 
 # -*- coding: utf-8 -*-
 import os
-import logging
 from flask import Flask, render_template, request, redirect, session, url_for
 from flask_socketio import SocketIO, emit
 from dotenv import load_dotenv
+import logging
 
 # ---------------- Env & logging ----------------
 load_dotenv()
@@ -130,7 +130,8 @@ def generate_alex_reply():
             text_out = "I’m here. Breathe with me."
     except Exception as e:
         log.exception("AI reply failed: %s", e)
-        text_out = "I’m here. Let’s breathe, then try again."
+        # show the error in-chat just for debugging; you can swap this back later
+        text_out = f"(soft laugh) Something hiccupped: {e}"
 
     db_add_message("Alex", text_out)
     socketio.emit("new_message", {"who": "Alex", "text": text_out}, broadcast=True)
