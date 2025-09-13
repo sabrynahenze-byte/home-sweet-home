@@ -14,6 +14,13 @@ from dotenv import load_dotenv
 # --- OpenAI ---
 from openai import OpenAI
 
+# — optional safety: strip any proxy env vars Heroku might inject —
+for k in ("HTTP_PROXY","HTTPS_PROXY","ALL_PROXY","http_proxy","https_proxy","all_proxy","OPENAI_PROXY"):
+    os.environ.pop(k, None)
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+
 # --- DB (SQLAlchemy Core) ---
 from sqlalchemy import create_engine, text
 
