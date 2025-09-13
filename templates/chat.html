@@ -34,43 +34,62 @@
   </form>
 
   <!-- Socket.IO client -->
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-  <script>
-    const logEl  = document.getElementById('log');
-    const form   = document.getElementById('composer');
-    const input  = document.getElementById('input');
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+<script>
+  // --- DOM hooks ---
+  const logEl  = document.getElementById('log');
+  const formEl = document.getElementById('composer');
+  const input  = document.getElementById('input');
 
-    // Force long-polling so Gunicorn + threading works on Heroku
-    const socket = io({ transports: ["websocket"], upgrade: false });
+  // --- helpers ---
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+  function render(msg) {
+    const wrap = document.createElement('div');
+    wrap.className = 'msg ' + (msg.who === 'Alex' ? 'alex' : 'me');
+    wrap.innerHTML = `<div class="meta">${msg.who}</div>${escapeHtml(msg.text)}`;
+    logEl.appendChild(wrap);
+    window.scrollTo(0, document.body.scrollHeight);
+  }
 
+  // --- socket.io client (v4) ---
+  const socket = io({
+    // try websocket first, fall back to polling if needed
+    transports: ['websocket', 'polling'],
+    withCredentials: false,
+    path: '/socket.io'
+  });
 
-    function escapeHtml(s) {
-      return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-    }
+  // initial hydrate
+  socket.on('init', (data) => {
+    (data?.messages || []).forEach(render);
+    console.log('[socket] init with', (data?.messages || []).length, 'messages');
+  });
 
-    function addMessage(who, text) {
-      const div = document.createElement('div');
-      div.className = 'msg ' + (who === 'Alex' ? 'alex' : 'me');
-      div.innerHTML = `<div class="meta">${who}</div>${escapeHtml(text)}`;
-      logEl.appendChild(div);
-      logEl.scrollTop = logEl.scrollHeight;
-    }
+  // live updates
+  socket.on('new_message', (msg) => {
+    render(msg);
+  });
 
-    socket.on('connect', () => console.log('connected'));
-    socket.on('init',   data => (data.messages || []).forEach(m => addMessage(m.who, m.text)));
-    socket.on('new_message', m => addMessage(m.who, m.text));
+  // send
+  formEl.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = (input.value || '').trim();
+    if (!text) return;
+    socket.emit('send_message', { who: 'You', text });
+    input.value = '';
+  });
 
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const text = input.value.trim();
-      if (!text) return;
-      socket.emit('send_message', { who: 'You', text });
-      input.value = '';
-    });
-
-    // For quick testing in the console:
-    window.sayAsAlex = (t) => socket.emit('send_message', { who: 'Alex', text: t });
-  </script>
+  // --- diagnostics (useful while we finish tuning) ---
+  socket.on('connect', () =>   console.log('[socket] connected id=', socket.id));
+  socket.on('disconnect', (r) => console.log('[socket] disconnected:', r));
+  socket.on('connect_error', (err) => console.warn('[socket] connect_error:', err?.message || err));
+  socket.on('reconnect_attempt', (n) => console.log('[socket] reconnect_attempt', n));
+  socket.on('error', (err) => console.warn('[socket] error:', err));
+  // quick manual test: in DevTools run:  window.sayAsAlex("hello")
+  window.sayAsAlex = (t) => socket.emit('send_message', { who: 'Alex', text: t });
+</script>
 </body>
 </html>
 

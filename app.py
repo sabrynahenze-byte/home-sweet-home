@@ -71,7 +71,7 @@ CHAT_PASSWORD = os.getenv("CHAT_PASSWORD", "change-this")
 
 # Socket.IO in threading mode (avoids eventlet/gevent complications)
 # replace your current socketio init line with:
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, async_mode="threading")
 
 
 # ---------------- Persistence helpers ----------------
