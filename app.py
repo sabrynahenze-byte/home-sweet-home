@@ -82,14 +82,15 @@ def db_add_message(who: str, body: str) -> None:
             {"who": who, "text": body}
         )
 
-def db_recent_messages(limit: int = MESSAGE_LIMIT):
+def db_recent_messages(limit: int = MESSAGE_LIMIT, last_n=None):
+    if last_n is not None:  # accept old callers
+        limit = last_n
     with engine.begin() as conn:
-        rows = conn.execute(
-            text("SELECT who, text FROM messages ORDER BY id DESC LIMIT :lim"),
-            {"lim": limit}
-        ).mappings().all()
-    # Return oldest -> newest
+        rows = conn.execute(text(
+            "SELECT who, text FROM messages ORDER BY id DESC LIMIT :lim"
+        ), {"lim": limit}).mappings().all()
     return list(reversed([{"who": r["who"], "text": r["text"]} for r in rows]))
+
 
 # ---------------- AI reply ----------------
 def build_history(last_n: int = 30):
