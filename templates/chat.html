@@ -6,17 +6,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root { color-scheme: dark; }
-    body { margin:0; font-family: system-ui, sans-serif; background:#0b0f14; color:#e9f0f6; }
-    header { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; background:#101826; position:sticky; top:0; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#0b0f14; color:#e9f0f6; }
+    header { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; background:#101826; position:sticky; top:0; z-index:10; }
     .brand { font-weight:700; letter-spacing:.2px; }
     .btn { color:#9fb6ff; text-decoration:none; }
-    #log { padding:16px; display:flex; flex-direction:column; gap:10px; }
-    .msg { padding:10px 12px; border-radius:12px; max-width: 720px; line-height:1.35; }
+    main#log { padding:16px; display:flex; flex-direction:column; gap:10px; max-height:70vh; overflow:auto; }
+    .msg { padding:10px 12px; border-radius:12px; max-width: 720px; line-height:1.35; word-wrap:break-word; }
     .me { background:#142033; align-self:flex-end; }
     .alex { background:#121a27; border:1px solid #1b283d; }
-    form { position:sticky; bottom:0; background:#0b0f14; padding:12px 16px; display:flex; gap:8px; }
+    form#composer { position:sticky; bottom:0; background:#0b0f14; padding:12px 16px; display:flex; gap:8px; }
     input[type=text] { flex:1; padding:12px; border-radius:12px; border:1px solid #1f2736; background:#0f1624; color:#e9f0f6; }
-    button { padding:12px 14px; border-radius:12px; border:none; background:#2f6fec; color:white; font-weight:600; }
+    button { padding:12px 14px; border-radius:12px; border:none; background:#2f6fec; color:white; font-weight:600; cursor:pointer; }
     .meta { opacity:.7; font-size:.85rem; margin-bottom:2px; }
   </style>
 </head>
@@ -30,33 +30,34 @@
 
   <form id="composer">
     <input id="input" type="text" placeholder="Pause, love — Glowhold. Breathe." autocomplete="off" />
-    <button>Send</button>
+    <button type="submit">Send</button>
   </form>
 
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" integrity="sha384-CpjWz3Gm1r7oH0rC8uWqYzJk8wTz6k3wYq0bLk8e4UEa7QqgQb7x+9b1N6W2E8H2" crossorigin="anonymous"></script>
+  <!-- Socket.IO client -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script>
-    const log = document.getElementById('log');
-    const form = document.getElementById('composer');
-    const input = document.getElementById('input');
-    const socket = io();
+    const logEl  = document.getElementById('log');
+    const form   = document.getElementById('composer');
+    const input  = document.getElementById('input');
 
-    function render(msg) {
-      const div = document.createElement('div');
-      div.className = 'msg ' + (msg.who === 'Alex' ? 'alex' : 'me');
-      div.innerHTML = `<div class="meta">${msg.who}</div>${escapeHtml(msg.text)}`;
-      log.appendChild(div);
-      window.scrollTo(0, document.body.scrollHeight);
-    }
+    // Force long-polling so Gunicorn + threading works on Heroku
+    const socket = io({ transports: ['polling'] });
 
     function escapeHtml(s) {
       return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
     }
 
-    socket.on('init', (data) => {
-      (data.messages || []).forEach(render);
-    });
+    function addMessage(who, text) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + (who === 'Alex' ? 'alex' : 'me');
+      div.innerHTML = `<div class="meta">${who}</div>${escapeHtml(text)}`;
+      logEl.appendChild(div);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
 
-    socket.on('new_message', (msg) => render(msg));
+    socket.on('connect', () => console.log('connected'));
+    socket.on('init',   data => (data.messages || []).forEach(m => addMessage(m.who, m.text)));
+    socket.on('new_message', m => addMessage(m.who, m.text));
 
     form.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -66,8 +67,9 @@
       input.value = '';
     });
 
-    // Optional: quick “speak as Alex” test button in console
+    // For quick testing in the console:
     window.sayAsAlex = (t) => socket.emit('send_message', { who: 'Alex', text: t });
   </script>
 </body>
 </html>
+
