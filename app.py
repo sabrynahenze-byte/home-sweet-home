@@ -18,7 +18,8 @@ app.secret_key = os.getenv("SECRET_KEY", "dev-secret-change-me")
 # Simple gate (just for us)
 CHAT_PASSWORD = os.getenv("CHAT_PASSWORD", "change-this")
 
-socketio = SocketIO(app, async_mode="eventlet")
+# ✅ Use threading to avoid eventlet/gevent issues on Heroku
+socketio = SocketIO(app, async_mode="threading", cors_allowed_origins="*")
 
 # In-memory message buffer (keeps the last ~200 lines; resets on redeploy)
 MESSAGE_LIMIT = 200
@@ -72,4 +73,5 @@ def on_send(data):
 
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+
 
