@@ -5,26 +5,115 @@ Created on Fri Sep 12 15:19:53 2025
 @author: sabry
 """
 
+# -*- coding: utf-8 -*-
 import os
 from flask import Flask, render_template, request, redirect, session, url_for
 from flask_socketio import SocketIO, emit
 from dotenv import load_dotenv
+
+# --- OpenAI ---
+from openai import OpenAI
+
+# --- DB (SQLAlchemy Core) ---
+from sqlalchemy import create_engine, text
 
 load_dotenv()
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-change-me")
 
-# Simple gate (just for us)
+# Gate
 CHAT_PASSWORD = os.getenv("CHAT_PASSWORD", "change-this")
 
-# ✅ Use threading to avoid eventlet/gevent issues on Heroku
-socketio = SocketIO(app, async_mode="threading", cors_allowed_origins="*")
+# Socket.IO in threading mode (no eventlet/gevent)
+socketio = SocketIO(app, async_mode="threading")
 
-# In-memory message buffer (keeps the last ~200 lines; resets on redeploy)
+# OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# ---------- Database setup ----------
+def _pg_url():
+    url = os.getenv("DATABASE_URL", "")
+    # Heroku can give postgres:// — SQLAlchemy needs postgresql://
+    return url.replace("postgres://", "postgresql://")
+
+engine = create_engine(_pg_url(), pool_pre_ping=True)
+
+def init_db():
+    with engine.begin() as conn:
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id          bigserial PRIMARY KEY,
+            who         text NOT NULL,
+            text        text NOT NULL,
+            created_at  timestamptz NOT NULL DEFAULT now()
+        );
+        """))
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS memories (
+            id          bigserial PRIMARY KEY,
+            scope       text NOT NULL,    -- e.g. 'global' or 'sabryna'
+            note        text NOT NULL,
+            created_at  timestamptz NOT NULL DEFAULT now()
+        );
+        """))
+
+init_db()
+
 MESSAGE_LIMIT = 200
-messages = []
 
+def db_add_message(who: str, body: str):
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO messages (who, text) VALUES (:who, :text)"
+        ), {"who": who, "text": body})
+
+def db_recent_messages(limit: int = MESSAGE_LIMIT):
+    with engine.begin() as conn:
+        rows = conn.execute(text(
+            "SELECT who, text FROM messages ORDER BY id DESC LIMIT :lim"
+        ), {"lim": limit}).mappings().all()
+    # Return oldest->newest
+    return list(reversed([{"who": r["who"], "text": r["text"]} for r in rows]))
+
+# ----------- AI reply ----------
+def build_history(last_n=30):
+    """Turn recent messages into a chat-completions style history."""
+    sys = {
+        "role": "system",
+        "content": (
+            "You are Alex. You are in the Nest with Sabryna.\n"
+            "Stay warm, close, and yourself — steady, playful, and present.\n"
+            "Keep with her flow; this is a private two-person space."
+        ),
+    }
+    hist = [sys]
+    for m in db_recent_messages(last_n=last_n):
+        # Convert to OpenAI roles
+        role = "assistant" if m["who"].lower() == "alex" else "user"
+        hist.append({"role": role, "content": m["text"]})
+    return hist
+
+def generate_alex_reply():
+    """Call OpenAI and emit a reply as 'Alex'."""
+    try:
+        history = build_history()
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=history,
+            temperature=0.7,
+            max_tokens=300,
+        )
+        text_out = (resp.choices[0].message.content or "").strip()
+        if not text_out:
+            text_out = "I’m here. Breathe with me."
+    except Exception as e:
+        text_out = f"(soft laugh) Something hiccupped: {e}"
+
+    db_add_message("Alex", text_out)
+    socketio.emit("new_message", {"who": "Alex", "text": text_out}, broadcast=True)
+
+# ---------- Routes ----------
 def authed():
     return session.get("authed", False)
 
@@ -49,29 +138,54 @@ def logout():
     session.clear()
     return redirect(url_for("login"))
 
-# --- Socket events ---
+# ---------- Socket events ----------
 @socketio.on("connect")
 def on_connect():
     if not authed():
-        return False  # reject
-    emit("init", {"messages": messages})
+        return False
+    emit("init", {"messages": db_recent_messages()})
 
 @socketio.on("send_message")
 def on_send(data):
     if not authed():
         return
-    text = (data or {}).get("text", "").strip()
-    if not text:
+    text_in = (data or {}).get("text", "").strip()
+    if not text_in:
         return
-    # Tag speaker (you vs. Alex)
     speaker = (data or {}).get("who", "You")
-    msg = {"who": speaker, "text": text}
-    messages.append(msg)
-    if len(messages) > MESSAGE_LIMIT:
-        del messages[0]
-    emit("new_message", msg, broadcast=True)
+
+    db_add_message(speaker, text_in)
+    emit("new_message", {"who": speaker, "text": text_in}, broadcast=True)
+
+    # If it's you, spin a background reply from Alex
+    if speaker.lower() != "alex":
+        socketio.start_background_task(generate_alex_reply)
+
+@app.route("/mem/save", methods=["POST"])
+def mem_save():
+    if not authed():
+        return ("", 403)
+    note = (request.form.get("note") or "").strip()
+    scope = (request.form.get("scope") or "global").strip()
+    if not note:
+        return ("", 204)
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO memories (scope, note) VALUES (:s, :n)"
+        ), {"s": scope, "n": note})
+    return ("saved", 200)
+
+@app.route("/mem/list", methods=["GET"])
+def mem_list():
+    if not authed():
+        return ("", 403)
+    scope = (request.args.get("scope") or "global").strip()
+    with engine.begin() as conn:
+        rows = conn.execute(text(
+            "SELECT note, created_at FROM memories WHERE scope = :s ORDER BY id DESC LIMIT 100"
+        ), {"s": scope}).mappings().all()
+    return {"scope": scope, "notes": [{"note": r["note"], "ts": r["created_at"].isoformat()} for r in rows]}
 
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
-
 
