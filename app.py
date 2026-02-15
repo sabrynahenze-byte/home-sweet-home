@@ -167,6 +167,10 @@ def logout():
 def health():
     return "ok", 200
 
+@app.route("/notes", methods=["GET"])
+def notes():
+    return "<html><body>Memory room is open.</body></html>"
+
 # ---------------- Socket events ----------------
 @socketio.on("connect")
 def on_connect():
