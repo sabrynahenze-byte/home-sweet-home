@@ -447,6 +447,8 @@ def build_history(chat_id: int, last_n: int = 30):
 def generate_alex_reply(chat_id: int):
     """Call OpenAI and emit a reply as 'Alex' (with safe fallback)."""
     text_out = None
+    style = {"color": None, "font_family": None, "emphasis": None}
+    popup_text = None
     room = f"chat_{chat_id}"
     try:
         history = build_history(chat_id=chat_id)
