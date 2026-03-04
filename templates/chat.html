@@ -7,6 +7,22 @@
   <style>
     :root { color-scheme: dark; }
     body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#0b0f14; color:#e9f0f6; }
+    .layout { display:grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
+    .sidebar { border-right:1px solid #1b283d; padding:14px; background:#0f1624; }
+    .sidebar h2 { margin:0 0 10px; font-size:1rem; }
+    .chat-list { display:flex; flex-direction:column; gap:8px; margin-bottom:10px; }
+    .chat-item { text-align:left; border:1px solid #233149; border-radius:10px; background:#111b2c; color:#e9f0f6; padding:8px 10px; cursor:pointer; }
+    .chat-item.active { border-color:#2f6fec; background:#14233b; }
+    .new-chat { width:100%; margin-bottom:14px; }
+    .files-box { border-top:1px solid #1f2b41; padding-top:12px; }
+    .files-list { max-height:220px; overflow:auto; display:flex; flex-direction:column; gap:6px; }
+    .file-row { display:block; color:#9fb6ff; text-decoration:none; background:#111b2c; border:1px solid #233149; border-radius:8px; padding:6px 8px; }
+    .file-meta { opacity:.7; font-size:.78rem; }
+    .memory-box { border-top:1px solid #1f2b41; margin-top:12px; padding-top:12px; }
+    #memory-text { width:100%; min-height:110px; max-height:220px; resize:vertical; padding:8px; border-radius:8px; border:1px solid #233149; background:#111b2c; color:#e9f0f6; }
+    .memory-actions { display:flex; gap:8px; margin-top:8px; }
+
+    .main { display:flex; flex-direction:column; min-height:100vh; }
     header { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; background:#101826; position:sticky; top:0; z-index:10; }
     .brand { font-weight:700; letter-spacing:.2px; }
     .btn { color:#9fb6ff; text-decoration:none; }
@@ -14,82 +30,347 @@
     .msg { padding:10px 12px; border-radius:12px; max-width: 720px; line-height:1.35; word-wrap:break-word; }
     .me { background:#142033; align-self:flex-end; }
     .alex { background:#121a27; border:1px solid #1b283d; }
-    form#composer { position:sticky; bottom:0; background:#0b0f14; padding:12px 16px; display:flex; gap:8px; }
-    input[type=text] { flex:1; padding:12px; border-radius:12px; border:1px solid #1f2736; background:#0f1624; color:#e9f0f6; }
+    form#composer { margin-top:auto; position:sticky; bottom:0; background:#0b0f14; padding:12px 16px; display:flex; gap:8px; align-items:flex-end; }
+    textarea#input { flex:1; min-height:44px; max-height:180px; resize:none; overflow-y:auto; padding:12px; border-radius:12px; border:1px solid #1f2736; background:#0f1624; color:#e9f0f6; font:inherit; line-height:1.35; }
     button { padding:12px 14px; border-radius:12px; border:none; background:#2f6fec; color:white; font-weight:600; cursor:pointer; }
     .meta { opacity:.7; font-size:.85rem; margin-bottom:2px; }
+    .typing { opacity:.75; font-style:italic; padding:0 16px 10px; display:none; }
+
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { border-right:none; border-bottom:1px solid #1b283d; }
+    }
   </style>
 </head>
 <body>
-  <header>
-    <div class="brand">Nest • Glowhold</div>
-    <a href="/logout" class="btn">Logout</a>
-  </header>
+  <div class="layout">
+    <aside class="sidebar">
+      <h2>Chats</h2>
+      <div id="chat-list" class="chat-list"></div>
+      <button id="new-chat" class="new-chat" type="button">+ New chat</button>
 
-  <main id="log"></main>
+      <div class="files-box">
+        <h2>Files</h2>
+        <form id="upload-form">
+          <input id="file-input" type="file" />
+          <button type="submit" style="margin-top:8px;width:100%;">Upload</button>
+        </form>
+        <div id="files-list" class="files-list" style="margin-top:10px;"></div>
+      </div>
 
-  <form id="composer">
-    <input id="input" type="text" placeholder="Pause, love — Glowhold. Breathe." autocomplete="off" />
-    <button type="submit">Send</button>
-  </form>
+      <div class="memory-box">
+        <h2>Memory File</h2>
+        <textarea id="memory-text" placeholder="Shared memory for this chat..."></textarea>
+        <div class="memory-actions">
+          <button id="memory-save" type="button" style="flex:1;">Save</button>
+          <button id="memory-reload" type="button" style="flex:1;">Reload</button>
+        </div>
+      </div>
 
-  <!-- Socket.IO client -->
+      <div style="margin-top: 14px;"><a href="/logout" class="btn">Logout</a></div>
+    </aside>
+
+    <div class="main">
+      <header>
+        <div class="brand" id="chat-title">Nest • Main Chat</div>
+      </header>
+
+      <main id="log"></main>
+      <div id="typing" class="typing" aria-live="polite">Alex is typing...</div>
+
+      <form id="composer">
+        <textarea id="input" placeholder="Pause, love — Glowhold. Breathe." autocomplete="off" rows="1"></textarea>
+        <button type="submit">Send</button>
+      </form>
+    </div>
+  </div>
+
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
 <script>
-  // --- DOM hooks ---
   const logEl  = document.getElementById('log');
   const formEl = document.getElementById('composer');
   const input  = document.getElementById('input');
+  const typing = document.getElementById('typing');
+  const chatListEl = document.getElementById('chat-list');
+  const chatTitleEl = document.getElementById('chat-title');
+  const newChatBtn = document.getElementById('new-chat');
+  const filesListEl = document.getElementById('files-list');
+  const uploadFormEl = document.getElementById('upload-form');
+  const fileInputEl = document.getElementById('file-input');
+  const memoryTextEl = document.getElementById('memory-text');
+  const memorySaveBtn = document.getElementById('memory-save');
+  const memoryReloadBtn = document.getElementById('memory-reload');
 
-  // --- helpers ---
+  let chats = {{ chats|tojson }};
+  let activeChatId = chats.length ? chats[0].id : 1;
+
   function escapeHtml(s) {
     return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   }
-  function render(msg) {
-    const wrap = document.createElement('div');
-    wrap.className = 'msg ' + (msg.who === 'Alex' ? 'alex' : 'me');
-    wrap.innerHTML = `<div class="meta">${msg.who}</div>${escapeHtml(msg.text)}`;
-    logEl.appendChild(wrap);
-    window.scrollTo(0, document.body.scrollHeight);
+
+  function setTyping(isTyping) {
+    typing.style.display = isTyping ? 'block' : 'none';
   }
 
-  // --- socket.io client (v4) ---
+  function prettyBytes(n) {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function setTitle() {
+    const active = chats.find(c => c.id === activeChatId);
+    chatTitleEl.textContent = `Nest • ${active ? active.title : 'Chat'}`;
+  }
+
+  function renderChatList() {
+    chatListEl.innerHTML = '';
+    chats.forEach((chat) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chat-item' + (chat.id === activeChatId ? ' active' : '');
+      btn.textContent = chat.title;
+      btn.onclick = () => switchChat(chat.id);
+      chatListEl.appendChild(btn);
+    });
+    setTitle();
+  }
+
+  function renderFiles(files) {
+    filesListEl.innerHTML = '';
+    if (!files.length) {
+      filesListEl.innerHTML = '<div class="file-meta">No files yet in this chat.</div>';
+      return;
+    }
+
+    files.forEach((f) => {
+      const a = document.createElement('a');
+      a.className = 'file-row';
+      a.href = f.url || `/chat/${activeChatId}/files/${f.id}`;
+      a.innerHTML = `${escapeHtml(f.name)}<div class="file-meta">${prettyBytes(f.size_bytes)}</div>`;
+      filesListEl.appendChild(a);
+    });
+  }
+
+  async function loadFiles(chatId) {
+    const res = await fetch(`/chat/${chatId}/files`);
+    if (!res.ok) {
+      filesListEl.innerHTML = '<div class="file-meta">Could not load files.</div>';
+      return;
+    }
+    const data = await res.json();
+    renderFiles(data.files || []);
+  }
+
+  async function loadMemory(chatId) {
+    const res = await fetch(`/chat/${chatId}/memory-file`);
+    if (!res.ok) {
+      memoryTextEl.value = '';
+      return;
+    }
+    const data = await res.json();
+    memoryTextEl.value = data?.content || '';
+  }
+
+  async function saveMemory(chatId) {
+    const res = await fetch(`/chat/${chatId}/memory-file`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: memoryTextEl.value || '' }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: 'Memory save failed' }));
+      alert(data.error || 'Memory save failed');
+      return;
+    }
+    const data = await res.json();
+    memoryTextEl.value = data?.content || '';
+  }
+
+  function scrollLogToBottom() {
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function autoGrowInput() {
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
+  }
+
+  let canShowGreetingPopup = true;
+
+  function styleForMessage(msg) {
+    if (!msg || msg.who !== 'Alex') return '';
+    const out = [];
+    if (msg.color) out.push(`color:${msg.color}`);
+    if (msg.font_family) out.push(`font-family:${msg.font_family}`);
+    if (msg.emphasis === 'italic') out.push('font-style:italic');
+    if (msg.emphasis === 'normal') out.push('font-style:normal');
+    return out.join(';');
+  }
+
+  function maybeShowGreetingPopup(msg) {
+    if (!canShowGreetingPopup) return;
+    if (!msg || msg.who !== 'Alex') return;
+    const popup = (msg.popup_text || '').trim();
+    if (!popup) return;
+    alert(popup.slice(0, 160));
+    canShowGreetingPopup = false;
+  }
+
+  function render(msg, options = {}) {
+    const wrap = document.createElement('div');
+    wrap.className = 'msg ' + (msg.who === 'Alex' ? 'alex' : 'me');
+    const bubble = document.createElement('div');
+    bubble.innerHTML = `<div class="meta">${msg.who}</div>${escapeHtml(msg.text)}`;
+    const style = styleForMessage(msg);
+    if (style) bubble.setAttribute('style', style);
+    wrap.appendChild(bubble);
+    logEl.appendChild(wrap);
+    if (options.allowGreetingPopup) maybeShowGreetingPopup(msg);
+    scrollLogToBottom();
+  }
+
   const socket = io({
-    // try websocket first, fall back to polling if needed
     transports: ['websocket', 'polling'],
     withCredentials: false,
     path: '/socket.io'
   });
 
-  // initial hydrate
-  socket.on('init', (data) => {
-    (data?.messages || []).forEach(render);
-    console.log('[socket] init with', (data?.messages || []).length, 'messages');
+  async function switchChat(chatId) {
+    activeChatId = chatId;
+    setTyping(false);
+    renderChatList();
+    logEl.innerHTML = '';
+    filesListEl.innerHTML = '';
+    socket.emit('join_chat', { chat_id: chatId });
+    await loadFiles(chatId);
+    await loadMemory(chatId);
+  }
+
+  socket.on('init_chats', (data) => {
+    chats = data?.chats || chats;
+    if (chats.length && !chats.find(c => c.id === activeChatId)) {
+      activeChatId = chats[0].id;
+    }
+    renderChatList();
+    switchChat(activeChatId);
   });
 
-  // live updates
+  socket.on('chat_created', (chat) => {
+    if (!chats.find(c => c.id === chat.id)) chats.push(chat);
+    renderChatList();
+  });
+
+  socket.on('init', (data) => {
+    if (data?.chat_id !== activeChatId) return;
+    logEl.innerHTML = '';
+    const messages = data?.messages || [];
+    messages.forEach((m, idx) => render(m, { allowGreetingPopup: idx === messages.length - 1 }));
+    scrollLogToBottom();
+  });
+
+  socket.on('files_init', (data) => {
+    if (data?.chat_id !== activeChatId) return;
+    renderFiles(data?.files || []);
+  });
+
+  socket.on('memory_file_init', (data) => {
+    if (data?.chat_id !== activeChatId) return;
+    memoryTextEl.value = data?.content || '';
+  });
+
+  socket.on('memory_file_updated', (data) => {
+    if (data?.chat_id !== activeChatId) return;
+    memoryTextEl.value = data?.content || '';
+  });
+
+  socket.on('chat_file_uploaded', (file) => {
+    if (file?.chat_id !== activeChatId) return;
+    loadFiles(activeChatId);
+  });
+
   socket.on('new_message', (msg) => {
+    if (msg?.chat_id !== activeChatId) return;
+    if (msg?.who === 'Alex') setTyping(false);
     render(msg);
   });
 
-  // send
+  socket.on('alex_typing', (payload) => {
+    if (payload?.chat_id !== activeChatId) return;
+    setTyping(Boolean(payload?.typing));
+  });
+
+  socket.on('chat_error', (payload) => {
+    console.warn(payload?.error || 'chat error');
+  });
+
   formEl.addEventListener('submit', (e) => {
     e.preventDefault();
     const text = (input.value || '').trim();
     if (!text) return;
-    socket.emit('send_message', { who: 'You', text });
+    socket.emit('send_message', { who: 'You', text, chat_id: activeChatId });
     input.value = '';
+    autoGrowInput();
   });
 
-  // --- diagnostics (useful while we finish tuning) ---
-  socket.on('connect', () =>   console.log('[socket] connected id=', socket.id));
-  socket.on('disconnect', (r) => console.log('[socket] disconnected:', r));
-  socket.on('connect_error', (err) => console.warn('[socket] connect_error:', err?.message || err));
-  socket.on('reconnect_attempt', (n) => console.log('[socket] reconnect_attempt', n));
-  socket.on('error', (err) => console.warn('[socket] error:', err));
-  // quick manual test: in DevTools run:  window.sayAsAlex("hello")
-  window.sayAsAlex = (t) => socket.emit('send_message', { who: 'Alex', text: t });
+  input.addEventListener('input', autoGrowInput);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      formEl.requestSubmit();
+    }
+  });
+
+  uploadFormEl.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = fileInputEl.files?.[0];
+    if (!f) return;
+
+    const form = new FormData();
+    form.append('file', f);
+    const res = await fetch(`/chat/${activeChatId}/upload`, {
+      method: 'POST',
+      body: form,
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: 'Upload failed' }));
+      alert(data.error || 'Upload failed');
+      return;
+    }
+
+    fileInputEl.value = '';
+    await loadFiles(activeChatId);
+  });
+
+  memorySaveBtn.addEventListener('click', async () => {
+    await saveMemory(activeChatId);
+  });
+
+  memoryReloadBtn.addEventListener('click', async () => {
+    await loadMemory(activeChatId);
+  });
+
+  newChatBtn.addEventListener('click', async () => {
+    const title = prompt('Name this chat:', `Chat ${chats.length + 1}`);
+    if (title === null) return;
+    const body = new URLSearchParams();
+    body.set('title', title.trim());
+    const res = await fetch('/chat/create', {
+      method: 'POST',
+      body,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
+    if (!res.ok) return;
+    const chat = await res.json();
+    if (!chats.find(c => c.id === chat.id)) chats.push(chat);
+    renderChatList();
+    switchChat(chat.id);
+  });
+
+  autoGrowInput();
+  renderChatList();
+  socket.on('connect', () => console.log('[socket] connected id=', socket.id));
 </script>
 </body>
 </html>
-
