@@ -75,6 +75,15 @@
         <div class="brand" id="chat-title">Nest • Main Chat</div>
       </header>
 
+
+      <div style="margin-top: 14px;"><a href="/logout" class="btn">Logout</a></div>
+    </aside>
+
+    <div class="main">
+      <header>
+        <div class="brand" id="chat-title">Nest • Main Chat</div>
+      </header>
+
       <main id="log"></main>
       <div id="typing" class="typing" aria-live="polite">Alex is typing...</div>
 
@@ -369,6 +378,45 @@
   });
 
   autoGrowInput();
+  uploadFormEl.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = fileInputEl.files?.[0];
+    if (!f) return;
+
+    const form = new FormData();
+    form.append('file', f);
+    const res = await fetch(`/chat/${activeChatId}/upload`, {
+      method: 'POST',
+      body: form,
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: 'Upload failed' }));
+      alert(data.error || 'Upload failed');
+      return;
+    }
+
+    fileInputEl.value = '';
+    await loadFiles(activeChatId);
+  });
+
+  newChatBtn.addEventListener('click', async () => {
+    const title = prompt('Name this chat:', `Chat ${chats.length + 1}`);
+    if (title === null) return;
+    const body = new URLSearchParams();
+    body.set('title', title.trim());
+    const res = await fetch('/chat/create', {
+      method: 'POST',
+      body,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
+    if (!res.ok) return;
+    const chat = await res.json();
+    if (!chats.find(c => c.id === chat.id)) chats.push(chat);
+    renderChatList();
+    switchChat(chat.id);
+  });
+
   renderChatList();
   socket.on('connect', () => console.log('[socket] connected id=', socket.id));
 </script>

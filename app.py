@@ -412,6 +412,89 @@ def extract_message_directives(reply_text: str):
     return cleaned, style, popup_text
 
 
+def db_list_chats():
+    with engine.begin() as conn:
+        rows = conn.execute(text(
+            "SELECT id, title FROM chats ORDER BY id ASC"
+        )).mappings().all()
+    return [{"id": int(r["id"]), "title": r["title"]} for r in rows]
+
+
+def db_chat_exists(chat_id: int) -> bool:
+    with engine.begin() as conn:
+        row = conn.execute(text("SELECT 1 FROM chats WHERE id = :chat_id"), {"chat_id": chat_id}).first()
+    return row is not None
+
+
+def db_create_chat(title: str):
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("INSERT INTO chats (title) VALUES (:title) RETURNING id, title"),
+            {"title": title},
+        ).mappings().first()
+    return {"id": int(row["id"]), "title": row["title"]}
+
+
+def db_add_file(chat_id: int, original_name: str, stored_path: str, mime_type: str, size_bytes: int, uploaded_by: str):
+    with engine.begin() as conn:
+        row = conn.execute(text("""
+            INSERT INTO files (chat_id, original_name, stored_path, mime_type, size_bytes, uploaded_by)
+            VALUES (:chat_id, :original_name, :stored_path, :mime_type, :size_bytes, :uploaded_by)
+            RETURNING id, chat_id, original_name, mime_type, size_bytes, uploaded_by, created_at
+        """), {
+            "chat_id": chat_id,
+            "original_name": original_name,
+            "stored_path": stored_path,
+            "mime_type": mime_type,
+            "size_bytes": size_bytes,
+            "uploaded_by": uploaded_by,
+        }).mappings().first()
+
+    return {
+        "id": int(row["id"]),
+        "chat_id": int(row["chat_id"]),
+        "name": row["original_name"],
+        "mime_type": row["mime_type"] or "application/octet-stream",
+        "size_bytes": int(row["size_bytes"]),
+        "uploaded_by": row["uploaded_by"],
+        "created_at": row["created_at"].isoformat() if hasattr(row["created_at"], "isoformat") else str(row["created_at"]),
+    }
+
+
+def db_list_files(chat_id: int):
+    with engine.begin() as conn:
+        rows = conn.execute(text("""
+            SELECT id, chat_id, original_name, mime_type, size_bytes, uploaded_by, created_at
+            FROM files
+            WHERE chat_id = :chat_id
+            ORDER BY id DESC
+            LIMIT 200
+        """), {"chat_id": chat_id}).mappings().all()
+
+    out = []
+    for row in rows:
+        out.append({
+            "id": int(row["id"]),
+            "chat_id": int(row["chat_id"]),
+            "name": row["original_name"],
+            "mime_type": row["mime_type"] or "application/octet-stream",
+            "size_bytes": int(row["size_bytes"]),
+            "uploaded_by": row["uploaded_by"],
+            "created_at": row["created_at"].isoformat() if hasattr(row["created_at"], "isoformat") else str(row["created_at"]),
+        })
+    return out
+
+
+def db_get_file(file_id: int, chat_id: int):
+    with engine.begin() as conn:
+        row = conn.execute(text("""
+            SELECT id, chat_id, original_name, stored_path, mime_type, size_bytes
+            FROM files
+            WHERE id = :file_id AND chat_id = :chat_id
+        """), {"file_id": file_id, "chat_id": chat_id}).mappings().first()
+    return row
+
+
 # ---------------- AI reply ----------------
 def build_history(chat_id: int, last_n: int = 30):
     """Turn recent messages into Chat Completions-style history."""
