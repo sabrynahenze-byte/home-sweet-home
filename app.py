@@ -523,11 +523,9 @@ def build_history(chat_id: int, last_n: int = 30):
         ),
     }
     hist = [sys]
-        for m in db_recent_messages(chat_id=chat_id, limit=last_n):
-                  role = "assistant" if m["who"].lower() == "alex" else "user"
-        hist.append({"role": role, "content": m["text"]})
-    return hist
-
+    for m in db_recent_messages(chat_id=chat_id, limit=last_n):
+                      role = "assistant" if m["who"].lower() == "alex" else "user"
+                      hist.append({"role": role, "content": m["text"]})
 
 def generate_alex_reply(chat_id: int):
     """Call OpenAI and emit a reply as 'Alex' (with safe fallback)."""
